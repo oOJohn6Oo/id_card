@@ -1,9 +1,13 @@
 package example.baibai.com.demo;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
+import android.os.Messenger;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
@@ -11,21 +15,12 @@ import android.widget.EditText;
 import android.widget.RadioButton;
 import android.widget.Toast;
 
-import org.xml.sax.Attributes;
-import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
-
-import java.io.InputStream;
-import java.util.HashMap;
-import java.util.Map;
-
-import javax.xml.parsers.SAXParser;
-import javax.xml.parsers.SAXParserFactory;
-
 import example.baibai.com.demo.application.MyApplication;
+import example.baibai.com.demo.service.NativePlaceService;
 
 public class BasicInfoActivity extends Activity {
 
+    private Intent getInfoFormID;
     EditText et_schoolNO;
     EditText et_name;
     EditText et_ID;
@@ -36,6 +31,29 @@ public class BasicInfoActivity extends Activity {
     EditText et_month;
     EditText et_day;
     MyApplication application;
+
+    @SuppressLint("HandlerLeak")
+    Handler handler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            super.handleMessage(msg);
+            if (msg.what == -1) {
+                et_ID.setTextColor(Color.RED);
+                Toast.makeText(BasicInfoActivity.this, "解析失败，身份证号码可能无效(带‘X’的号码请大写哦)", Toast.LENGTH_SHORT).show();
+            } else {
+                et_year.setText(msg.getData().getString("year", ""));
+                et_month.setText(msg.getData().getString("month", ""));
+                et_day.setText(msg.getData().getString("day", ""));
+                et_address.setText(msg.getData().getString("address", ""));
+
+                if (msg.getData().getInt("sex") % 2 == 0) {
+                    radioButton_woman.setChecked(true);
+                } else {
+                    radioButton_man.setChecked(true);
+                }
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,15 +71,17 @@ public class BasicInfoActivity extends Activity {
 
             @Override
             public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
+                //身份证格式错误，字体红色
                 if (!charSequence.toString().matches(getResources().getString(R.string.id_regex))) {
                     et_ID.setTextColor(Color.RED);
-                } else {
+                } else { //格式正确，字体黑色
                     et_ID.setTextColor(Color.BLACK);
-                    //解析失败
-                    if (!ID2Info()) {
-                        et_ID.setTextColor(Color.RED);
-                        Toast.makeText(BasicInfoActivity.this, "解析失败，身份证号码可能无效", Toast.LENGTH_SHORT).show();
-                    }
+
+                    //输入的身份证字符存入intent
+                    getInfoFormID.putExtra("ID", charSequence.toString());
+                    getInfoFormID.putExtra("messenger", new Messenger((handler)));
+                    //启动服务
+                    startService(getInfoFormID);
                 }
             }
 
@@ -91,7 +111,7 @@ public class BasicInfoActivity extends Activity {
                     return;
                 }
 
-                if(!myID.matches(getResources().getString(R.string.id_regex))){
+                if (!myID.matches(getResources().getString(R.string.id_regex))) {
                     Toast.makeText(BasicInfoActivity.this, "身份证格式不正确,如果包含‘x’请大写哦", Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -110,8 +130,8 @@ public class BasicInfoActivity extends Activity {
                         .setID(myID)
                         .setSex(sex)
                         .setAddress(et_address.getText().toString())
-                        .setBirthday(getResources().getString(R.string.birthday,et_year.getText().toString(),
-                                et_month.getText().toString(),et_day.getText().toString()));
+                        .setBirthday(getResources().getString(R.string.birthday, et_year.getText().toString(),
+                                et_month.getText().toString(), et_day.getText().toString()));
 
                 startActivity(new Intent(BasicInfoActivity.this, SchoolInfoActivity.class));
             }
@@ -119,6 +139,7 @@ public class BasicInfoActivity extends Activity {
     }
 
     private void initView() {
+        getInfoFormID = new Intent(this, NativePlaceService.class);
         application = (MyApplication) getApplication();
         et_schoolNO = findViewById(R.id.et_school_no);
         et_name = findViewById(R.id.et_name);
@@ -131,104 +152,9 @@ public class BasicInfoActivity extends Activity {
         et_day = findViewById(R.id.et_day);
     }
 
-    private boolean ID2Info() {
-        //拿到用户输入的身份证号
-        String id = et_ID.getText().toString();
-        //获得年月日
-        int yy = Integer.parseInt(id.substring(6, 10));
-        int MM = Integer.parseInt(id.substring(10, 12));
-        int dd = Integer.parseInt(id.substring(12, 14));
-
-        //获得性别
-        int sex = Integer.parseInt(id.substring(16,17));
-
-        //设置性别
-        if(sex%2==0){
-            radioButton_woman.setChecked(true);
-        }else{
-            radioButton_man.setChecked(true);
-        }
-        //填入年月日(为使类似09的格式转为9)
-        et_year.setText(String.valueOf(yy));
-        et_month.setText(String.valueOf(MM));
-        et_day.setText(String.valueOf(dd));
-        //sax解析
-        try {
-            Map<String,String> result = sax2xml(getResources().getAssets().open("idInfo"));
-            //填入籍贯
-            et_address.setText(result.get(id.substring(0,6)));
-        } catch (Exception e) {
-            e.printStackTrace();
-            return false;
-        }
-        return true;
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        stopService(getInfoFormID);
     }
-
-
-    /**
-     * sax解析
-     */
-    public Map<String, String> sax2xml(InputStream is) throws Exception {
-        SAXParserFactory spf = SAXParserFactory.newInstance();
-        //初始化Sax解析器
-        SAXParser sp = spf.newSAXParser();
-        //新建解析处理器
-        MyHandler handler = new MyHandler();
-        //将解析交给处理器
-        sp.parse(is, handler);
-        //返回List
-        return handler.getXmlData();
-    }
-
-    public class MyHandler extends DefaultHandler {
-
-        private Map<String, String> xmlData;
-        //用于存储读取的临时变量
-        private String tempKey;
-        private String tempValue;
-
-        @Override
-        public void startDocument() throws SAXException {
-            xmlData = new HashMap<>();
-            super.startDocument();
-        }
-
-        @Override
-        public void endDocument() throws SAXException {
-            super.endDocument();
-        }
-
-        @Override
-        public void startElement(String uri, String localName, String qName, Attributes attributes) throws SAXException {
-            if ("code".equals(qName)) {
-                tempKey = attributes.getValue("id");
-            }
-
-            super.startElement(uri, localName, qName, attributes);
-        }
-
-        @Override
-        public void endElement(String uri, String localName, String qName) throws SAXException {
-            if ("name".equals(qName)) {
-                        xmlData.put(tempKey,tempValue);
-            }
-            super.endElement(uri, localName, qName);
-        }
-
-        @Override
-        public void characters(char[] ch, int start, int length) throws SAXException {
-            tempValue = new String(ch, start, length);
-            super.characters(ch, start, length);
-        }
-
-
-        /*
-            获取国家、省、城市、县级的集合
-         */
-        public Map<String, String> getXmlData() {
-            return xmlData;
-        }
-    }
-
-
 }

@@ -22,6 +22,8 @@
         <activity android:name=".BasicInfoActivity"/>
         <activity android:name=".SchoolInfoActivity"/>
         <activity android:name=".OtherInfoActivity"/>
+
+        <service android:name=".service.NativePlaceService" />
     </application>
 
 </manifest>

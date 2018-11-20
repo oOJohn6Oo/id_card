@@ -17,9 +17,9 @@ public class SQLiteDbHelper extends SQLiteOpenHelper {
     //创建 students 表的 sql 语句
     private static final String STUDENTS_CREATE_TABLE_SQL = "create TABLE IF NOT EXISTS " + TABLE_STUDENT + "("
             + "student_id integer primary key,"
-            + "name varchar(20) not null,"
-            + "id_number varchar(20) not null,"
-            + "sex varchar(2) not null,"
+            + "name varchar not null,"
+            + "id_number varchar not null,"
+            + "sex varchar not null,"
             + "native_place varchar not null,"
             + "birthday varchar not null,"
             + "college varchar not null,"
